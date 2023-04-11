@@ -1,0 +1,37 @@
+{
+    "job_id" : "rollup_daily_curated_condition_loan",
+    "step_function":"arn:aws:states:ap-southeast-1:{{aws_account}}:stateMachine:{{prefix_orcs}}-orcs_glue_job_v1",
+    "data_time": {
+        "type":"date",
+        "extract": {
+            "func":"get_event_data_date"
+        }
+    },
+    "finish_events":[
+        {
+            "name": "rollup_daily_curated_condition_loan",
+            "forward_params": true
+        }
+    ],
+    "trigger_events" : [
+        "rollup_daily_raw2staging_golden_ods_t24_phi_tra_no_tcb"
+    ],
+    "condition" : [
+        {
+            "name" : "all_job_succeeded",
+            "params" : {
+                "job_ids":[
+                    "rollup_daily_raw2staging_golden_ods_t24_phi_tra_no_tcb"
+                ],
+                "within":86400
+            }
+        },
+        {
+            "name": "last_run_succeeded"
+        }
+    ],
+    "priority": 1,
+    "step_funtion_input":{
+        
+    }
+}
