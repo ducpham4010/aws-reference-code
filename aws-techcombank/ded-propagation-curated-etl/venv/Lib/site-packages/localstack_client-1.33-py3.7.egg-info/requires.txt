@@ -1,0 +1,7 @@
+boto3
+
+[test]
+coverage
+pycodestyle
+nose
+localstack
