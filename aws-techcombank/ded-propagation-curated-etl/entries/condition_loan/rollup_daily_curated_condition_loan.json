@@ -4,7 +4,10 @@
     "data_time": {
         "type":"date",
         "extract": {
-            "func":"get_event_data_date"
+            "func":"get_event_data_date",
+            "kwargs":{
+                "delta": 1
+            }
         }
     },
     "finish_events":[
@@ -32,6 +35,52 @@
     ],
     "priority": 1,
     "step_funtion_input":{
-        
-    }
+        "glue_args_adapter": "legacy_g2i_1b",
+        "glue_job_config" :{
+            "Inputs" : [
+                {
+                    "name": "t24_phi_tranoth_tcb_mv1",
+                    "reader_type" : "catalog",
+                    "glue_catalog" : {
+                        "database" : "{{ prefix_ps5 }}-golden_ods",
+                        "table" : "t24_phi_tranoth_tcb_mv1"
+                    },
+                    "serde": {
+                        "format": "PARQUET"
+                    }
+                }
+            ],
+            "Outputs": [
+                {
+                    "input_names": [
+                        "condition_loan"
+                    ],
+                    "targets": [
+                        {
+                            "catalog_name": "glue_catalog",
+                            "tbl_name": "condition_loan",
+                            "db_name": "{{ prefix_curated }}-golden_curated",
+                            "writer_type": "CUSTOM",
+                            "serde": {
+                                "format": "iceberg"
+                            },
+                            "primary_columns": [
+                                "ar_ctr_nbr",
+                                "rec_position",
+                                "src_stm_id"
+                            ],
+                            "src_stms": ["src_stm_id"]
+                        }
+                    ]
+                }
+            ]
+        },
+        "glue_job":"{{prefix_job_curated }}-curated_t24_phi_trano_tcb_mv1_to_condition_loan",
+        "glue_crawler": []
+    },
+    "is_disable": false,
+    "tags":[
+        "curated",
+        "condition_loan"
+    ]
 }
