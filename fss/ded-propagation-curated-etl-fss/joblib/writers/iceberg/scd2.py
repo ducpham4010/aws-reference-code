@@ -1,18 +1,41 @@
 from copy import deepcopy
 from marshmallow import fields, validate, RAISE, validates_schema
+from marshmallow import Schema, fields, validate, validates_schema, ValidationError
+from marshmallow.utils import INCLUDE
 from pyspark.sql import DataFrame, SparkSession
 import pyspark.sql.functions as F
 from pyspark.sql.utils import AnalysisException
 from pyspark.sql import DataFrame, functions as SparkSession
 from awsglue.context import GlueContext
-from jeda.models.constants import SerializationFormats
-from ..exceptions import BaseException
-from jeda.models.job_output import OutputTarget
-from jeda.models.jou_output import OutputTargetSchema
 from typing import Iterable, List
-from joblib.constant.constants import TechnicalColumn_scd2
 from pyspark.sql.types import StringType
 from joblib.constant import common_values as VAL
+
+class OutputTargetSchema(Schema):
+    class Meta:
+        unknown = INCLUDE
+
+    # Only writer_type should be required,
+    # probably move rest of parameters to separate validation classes of each writer_type
+    writer_type = 'ScdType2'
+    writer_config = fields.Dict(required=False)
+
+    table_type = 'base_table'
+    path = fields.String(required=False, load_default=None, allow_none=True)
+    serde = fields.Dict(required=False, load_default=None, allow_none=True)
+    is_diff = fields.Boolean(required=False, load_default=False)
+    diff_keys = fields.List(required=False, load_default=None, cls_or_instance=fields.String(), allow_none=True)
+    is_unique = fields.Boolean(required=False, load_default=False, allow_none=True)
+    unique_keys = fields.List(required=False, load_default=None, cls_or_instance=fields.String(), allow_none=True)
+    partition_by = fields.String(required=False, load_default=None, allow_none=True)
+    partition_columns = fields.List(required=False, load_default=None, cls_or_instance=fields.String(), allow_none=True)
+    write_mode = 'overwrite'
+    writer_sub_type = fields.String(required=False, load_default=None, allow_none=True)
+    primary_column = fields.String(required=False, load_default=None, allow_none=True)
+    key_sm = fields.String(load_default="")
+    table = fields.String(load_default="")
+    tmp_path = fields.String(required=False, load_default=None)
+    golden_path = fields.String(required=False, load_default=None)
 
 class IcebergSCD2WriterOutputTargetSchema(OutputTargetSchema):
     class Meta:
@@ -28,11 +51,6 @@ class IcebergSCD2WriterOutputTargetSchema(OutputTargetSchema):
     src_stms = fields.List(
         fields.String(), required = False, validate = validate.Length(min=1)
     )
-    def validate(self, data, **kwargs):
-        if data.get("serde", {}.get("format", "") != SerializationFormats.iceberg):
-            raise BaseException(
-                f"Only {SerializationFormats.iceberg} format is supported"
-            )
 
 class IcebergSCD2Writer:
     def __init__(
@@ -40,7 +58,7 @@ class IcebergSCD2Writer:
         glue_context: GlueContext,
         spark: SparkSession,
         df: DataFrame,
-        target: OutputTarget,
+        target: dict,
         process_date : str
         ):
         config = deepcopy(target._output_target_dict)
@@ -62,10 +80,10 @@ class IcebergSCD2Writer:
     @property
     def technical_columns(self) -> Iterable[str]:
         return [
-            TechnicalColumn_scd2.EFFECTIVE_DATE,
-            TechnicalColumn_scd2.END_DATE,
-            TechnicalColumn_scd2.RECORD_STATUS,
-            TechnicalColumn_scd2.PPN_DT,
+            'eff_dt',
+            'end_dt',
+            'rec_st',
+            'ppn_dt',
         ]
 
     def merge_data(self) -> DataFrame:
@@ -81,8 +99,8 @@ class IcebergSCD2Writer:
                 self.catalog_name,self.db_name,self.tbl_name
             ))
             df_target = df_target.filter(
-                (F.to_date(F.col(TechnicalColumn_scd2.END_DATE),VAL.GOLDEN_ZONE_DATE_FORMAT) > self.process_date) & 
-                (F.to_date(F.col(TechnicalColumn_scd2.EFFECTIVE_DATE),VAL.GOLDEN_ZONE_DATE_FORMAT) <= self.process_date))
+                (F.to_date(F.col('end_dt'),"yyyy-MM-dd") > self.process_date) & 
+                (F.to_date(F.col('eff_dt'),"yyyy-MM-dd") <= self.process_date))
 
             #condition check status
             conditions_ = [F.when(F.concat_ws("",df_merge[c].cast(StringType())) != F.concat_ws("",df_target[c].cast(StringType())), F.lit(c)).otherwise("") for c in df_merge.columns if
@@ -154,8 +172,8 @@ class IcebergSCD2Writer:
                 .select(df_merge["*"])
             )
             if ~df_target.rdd.isEmpty():
-                new_df = new_df.withColumn("eff_dt",F.when(df_merge["eff_dt"] != F.to_date(F.lit(self.process_date),VAL.GOLDEN_ZONE_DATE_FORMAT),F.to_date(F.lit(self.process_date),VAL.GOLDEN_ZONE_DATE_FORMAT)).otherwise(df_merge["eff_dt"]))\
-                    .withColumn("ppn_dt",F.when(df_merge["ppn_dt"] != F.to_date(F.lit(self.process_date),VAL.GOLDEN_ZONE_DATE_FORMAT),F.to_date(F.lit(self.process_date),VAL.GOLDEN_ZONE_DATE_FORMAT)).otherwise(df_merge["ppn_dt"]))
+                new_df = new_df.withColumn("eff_dt",F.when(df_merge["eff_dt"] != F.to_date(F.lit(self.process_date),"yyyy-MM-dd"),F.to_date(F.lit(self.process_date),"yyyy-MM-dd")).otherwise(df_merge["eff_dt"]))\
+                    .withColumn("ppn_dt",F.when(df_merge["ppn_dt"] != F.to_date(F.lit(self.process_date),"yyyy-MM-dd"),F.to_date(F.lit(self.process_date),"yyyy-MM-dd")).otherwise(df_merge["ppn_dt"]))
                 
             new_df.createOrReplaceTempView("new_tbl")
             query_insert_new_update = """
