@@ -1,15 +1,17 @@
 from copy import deepcopy
+
 from marshmallow import fields, validate, RAISE, validates_schema
 from pyspark.sql import DataFrame, SparkSession
 import pyspark.sql.functions as F
 from pyspark.sql.utils import AnalysisException
-from pyspark.sql import DataFrame, functions as SparkSession
+
+from pyspark.sql import DataFrame, functions as  SparkSession
 from awsglue.context import GlueContext
 from jeda.models.constants import SerializationFormats
-from ..exceptions import BaseException
+from ...exceptions import BaseException
 from jeda.models.job_output import OutputTarget
-from jeda.models.jou_output import OutputTargetSchema
-from typing import Iterable, List
+from jeda.models.job_output import OutputTargetSchema
+from typing import Iterable,List
 from joblib.constant.constants import TechnicalColumn_scd2
 from pyspark.sql.types import StringType
 from joblib.constant import common_values as VAL
@@ -17,48 +19,56 @@ from joblib.constant import common_values as VAL
 class IcebergSCD2WriterOutputTargetSchema(OutputTargetSchema):
     class Meta:
         unknown = RAISE
-    
+
     path = fields.String(required=False)
     primary_columns = fields.List(
-        fields.String(), required = True, validate = validate.Length(min=1)
+        fields.String(), required=True, validate=validate.Length(min=1)
     )
     catalog_name = fields.String(required=True)
     db_name = fields.String(required=True)
     tbl_name = fields.String(required=True)
     src_stms = fields.List(
-        fields.String(), required = False, validate = validate.Length(min=1)
+        fields.String(), required=False, validate=validate.Length(min=1),load_default = None
     )
+    
+    options = fields.Dict(required=False, load_default=None, allow_none=True)
+
     def validate(self, data, **kwargs):
-        if data.get("serde", {}.get("format", "") != SerializationFormats.iceberg):
+        if data.get("serde", {}).get("format", "") != SerializationFormats.iceberg:
             raise BaseException(
                 f"Only {SerializationFormats.iceberg} format is supported"
             )
 
+
 class IcebergSCD2Writer:
+    """
+        'SCD2 writer' process for the input data to be full data has effect at the process_date
+    """
     def __init__(
         self,
         glue_context: GlueContext,
         spark: SparkSession,
         df: DataFrame,
         target: OutputTarget,
-        process_date : str
-        ):
+        process_date: str
+    ):
+        # Re-validate config
         config = deepcopy(target._output_target_dict)
-        config = dict((k,v) for k, v in config.items() if v is not None)
+        config = dict((k, v) for k, v in config.items() if v is not None)
         marshalled = IcebergSCD2WriterOutputTargetSchema().load(config)
         self.spark = spark
         self.glue_context = glue_context
         self.df = df
         self.target = target
-        self.target.primary_columns = marshalled['primary_columns']
-        self.primary_columns : List[str] = self.target.primary_columns
-        self.catalog_name = marshalled['catalog_name']
-        self.tbl_name = marshalled['tbl_name']
-        self.db_name = marshalled['db_name']
+        self.target.primary_columns = marshalled["primary_columns"]
+        self.primary_columns: List[str] = self.target.primary_columns
+        self.catalog_name = marshalled["catalog_name"]
+        self.tbl_name = marshalled["tbl_name"]
+        self.db_name = marshalled["db_name"]
         self.process_date = process_date
-        self.target.src_stms = marshalled['src_stms']
+        self.target.src_stms = marshalled["src_stms"]
         self.src_stms: List[str] = self.target.src_stms
-    
+
     @property
     def technical_columns(self) -> Iterable[str]:
         return [
@@ -67,7 +77,7 @@ class IcebergSCD2Writer:
             TechnicalColumn_scd2.RECORD_STATUS,
             TechnicalColumn_scd2.PPN_DT,
         ]
-
+    
     def merge_data(self) -> DataFrame:
         """
             require column: eff_dt, end_dt, rec_st, ppn_dt : etl date,
@@ -77,6 +87,7 @@ class IcebergSCD2Writer:
             #read table as dataframe
             df_merge = self.df
             df_merge.persist()
+            print("===============output_df_scd4current count:", df_merge.count())
             df_target = self.spark.table("{0}.{1}.{2}".format(
                 self.catalog_name,self.db_name,self.tbl_name
             ))
@@ -153,10 +164,11 @@ class IcebergSCD2Writer:
                 .filter(~df_check_stt.status.eqNullSafe("unchanged"))
                 .select(df_merge["*"])
             )
-            if ~df_target.rdd.isEmpty():
+            if df_target.count()>0:
+                print("not empty")
                 new_df = new_df.withColumn("eff_dt",F.when(df_merge["eff_dt"] != F.to_date(F.lit(self.process_date),VAL.GOLDEN_ZONE_DATE_FORMAT),F.to_date(F.lit(self.process_date),VAL.GOLDEN_ZONE_DATE_FORMAT)).otherwise(df_merge["eff_dt"]))\
                     .withColumn("ppn_dt",F.when(df_merge["ppn_dt"] != F.to_date(F.lit(self.process_date),VAL.GOLDEN_ZONE_DATE_FORMAT),F.to_date(F.lit(self.process_date),VAL.GOLDEN_ZONE_DATE_FORMAT)).otherwise(df_merge["ppn_dt"]))
-                
+            
             new_df.createOrReplaceTempView("new_tbl")
             query_insert_new_update = """
                 INSERT INTO {0}.{1}.{2}

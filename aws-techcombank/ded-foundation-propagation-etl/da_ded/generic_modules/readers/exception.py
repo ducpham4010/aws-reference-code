@@ -1,0 +1,2 @@
+class ReaderException(Exception):
+    pass

@@ -1,4 +1,3 @@
-#scd4current
 from copy import deepcopy
 
 from marshmallow import fields, validate, RAISE, validates_schema
@@ -15,6 +14,7 @@ from typing import Iterable,List
 from joblib.constant.constants import TechnicalColumn_scd4current
 from pyspark.sql.types import StringType
 from joblib.constant import common_values as VAL
+from joblib.constant.curated_table import curated_table as TBL
 
 
 class IcebergSCD4CurrentWriterOutputTargetSchema(OutputTargetSchema):
@@ -31,6 +31,11 @@ class IcebergSCD4CurrentWriterOutputTargetSchema(OutputTargetSchema):
     src_stms = fields.List(
         fields.String(), required=False, validate=validate.Length(min=1),load_default = None
     )
+    #ctas table if not exist
+    # path = fields.String(required=True)
+    # partition_columns = fields.List(
+    #     fields.String(), required=True, validate=validate.Length(min=1)
+    # )
 
     def validate(self, data, **kwargs):
         if data.get("serde", {}).get("format", "") != SerializationFormats.iceberg:
@@ -69,6 +74,9 @@ class IcebergSCD4CurrentWriter:
         self.process_date = process_date
         self.target.src_stms = marshalled["src_stms"]
         self.src_stms: List[str] = self.target.src_stms
+        #ctas table if not exist
+        # self.path = marshalled["path"]
+        # self.target.partition_columns = marshalled["partition_columns"]
 
     @property
     def technical_columns(self) -> Iterable[str]:
@@ -83,6 +91,9 @@ class IcebergSCD4CurrentWriter:
             df_merge = self.df
             df_merge.persist()
             print("===============output_df_scd4current count:", df_merge.count())
+            #ctas table if not exist
+            #ctas_if_not_exist(self.spark,self.catalog_name,self.db_name,self.tbl_name,self.partition_columns,getattr(TBL,self.tbl_name),  self.path)
+            
             df_target = self.spark.table("{0}.{1}.{2}".format(
                 self.catalog_name,self.db_name,self.tbl_name
             ))
@@ -178,7 +189,3 @@ class IcebergSCD4CurrentWriter:
 
     def write(self):
         self.merge_data()
-
-# Đối với những bản ghi delete =>> RCS_STT = 0
-# Đối với những bản ghi Update =>> Thay thế bằng bản ghi mới
-# Đối với những bản ghi Insert =>> Insert
