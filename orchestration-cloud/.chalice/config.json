@@ -1,0 +1,21 @@
+{
+  "version": "2.0",
+  "app_name": "orchestration-cloud",
+  "stages": {
+    "sit": {
+      "api_gateway_stage": "api",
+      "autogen_policy": false,
+      "iam_policy_file": "policy-sit.json"
+    },
+    "uat": {
+      "api_gateway_stage": "api",
+      "autogen_policy": false,
+      "iam_policy_file": "policy-uat.json"
+    },
+    "prod": {
+      "api_gateway_stage": "api",
+      "autogen_policy": false,
+      "iam_policy_file": "policy-prod.json"
+    }
+  }
+}
